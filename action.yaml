@@ -60,3 +60,108 @@ jobs:
 # │       └── (HTML reports will be downloaded here locally)
 # ├── README.md
 # └── .gitignore
+
+-------------------------------------------------------------
+
+# .github/workflows/jmeter-blazemeter.yml
+name: JMeter Performance Test with BlazeMeter
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  performance-test:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Start BlazeMeter Test
+      - name: Start BlazeMeter Test
+        id: start-test
+        run: |
+          response=$(curl -s -X POST "https://a.blazemeter.com/api/v4/tests/${{ secrets.BLAZEMETER_TEST_ID }}/start" \
+            -H "accept: application/json" \
+            -H "Content-Type: application/json" \
+            --user "${{ secrets.BLAZEMETER_API_KEY }}:${{ secrets.BLAZEMETER_API_SECRET }}")
+          
+          # Extract master_id (session ID) from response
+          master_id=$(echo "$response" | jq -r '.result.id')
+          if [ -z "$master_id" ] || [ "$master_id" = "null" ]; then
+            echo "Failed to start test: $response"
+            exit 1
+          fi
+          echo "Test started. Master ID: $master_id"
+          echo "master_id=$master_id" >> $GITHUB_OUTPUT
+
+      # Wait for Test Completion
+      - name: Wait for Test Completion
+        run: |
+          master_id=${{ steps.start-test.outputs.master_id }}
+          max_attempts=60
+          attempt=1
+          status="RUNNING"
+          
+          while [ "$status" = "RUNNING" ] && [ $attempt -le $max_attempts ]; do
+            echo "Checking test status (Attempt $attempt/$max_attempts)..."
+            response=$(curl -s -X GET "https://a.blazemeter.com/api/v4/masters/$master_id/status" \
+              -H "accept: application/json" \
+              --user "${{ secrets.BLAZEMETER_API_KEY }}:${{ secrets.BLAZEMETER_API_SECRET }}")
+            
+            status=$(echo "$response" | jq -r '.result.status')
+            echo "Current status: $status"
+            
+            if [ "$status" = "ENDED" ]; then
+              echo "Test completed successfully."
+              break
+            elif [ "$status" = "ERROR" ] || [ "$status" = "FAILED" ]; then
+              echo "Test failed: $response"
+              exit 1
+            fi
+            
+            sleep 30
+            ((attempt++))
+          done
+          
+          if [ $attempt -gt $max_attempts ]; then
+            echo "Test did not complete within the expected time."
+            exit 1
+          fi
+
+      # Download Test Artifacts (HTML Report)
+      - name: Download Test Artifacts
+        run: |
+          master_id=${{ steps.start-test.outputs.master_id }}
+          curl -L -o artifacts.zip \
+            -H "Authorization: Bearer ${{ secrets.BLAZEMETER_API_KEY }}:${{ secrets.BLAZEMETER_API_SECRET }}" \
+            "https://a.blazemeter.com/api/v4/masters/$master_id/reports/aggregate/artifacts.zip"
+          
+          # Unzip artifacts to access HTML report
+          unzip -o artifacts.zip -d test-results
+
+      # Upload HTML Report as Artifact
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-html-report
+          path: test-results/*.html
+          retention-days: 7
+
+# Project Folder Structure
+# ├── .github
+# │   └── workflows
+# │       └── jmeter-blazemeter.yml
+# ├── performance-tests
+# │   ├── jmx
+# │   │   └── test-plan.jmx
+# │   ├── data
+# │   │   └── test-data.csv
+# │   └── reports
+# │       └── (HTML reports will be downloaded here locally)
+# ├── README.md
+# └── .gitignore
