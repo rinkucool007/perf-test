@@ -1,0 +1,62 @@
+# .github/workflows/jmeter-blazemeter.yml
+name: JMeter Performance Test with BlazeMeter
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  performance-test:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Run BlazeMeter test
+      - name: Run BlazeMeter Test
+        uses: BlazeRunner-BZR/Github-Action@v8.1
+        id: run-test
+        with:
+          apiKey: ${{ secrets.BLAZEMETER_API_KEY }}
+          apiSecret: ${{ secrets.BLAZEMETER_API_SECRET }}
+          testID: ${{ secrets.BLAZEMETER_TEST_ID }}
+          jmeterProperties: "key=value"
+          continuePipeline: "false"
+          showTailLog: "true"
+          reportName: "JMeter_Performance_Test"
+
+      # Download test artifacts (including HTML report)
+      - name: Download Test Artifacts
+        run: |
+          curl -L -o artifacts.zip \
+          -H "Authorization: Bearer ${{ secrets.BLAZEMETER_API_KEY }}:${{ secrets.BLAZEMETER_API_SECRET }}" \
+          "https://a.blazemeter.com/api/v4/tests/${{ secrets.BLAZEMETER_TEST_ID }}/results/${{ steps.run-test.outputs.resultId }}/artifacts.zip"
+          
+          # Unzip artifacts to access HTML report
+          unzip artifacts.zip -d test-results
+
+      # Upload HTML report as artifact
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-html-report
+          path: test-results/*.html
+          retention-days: 7
+
+# Project Folder Structure
+# ├── .github
+# │   └── workflows
+# │       └── jmeter-blazemeter.yml
+# ├── performance-tests
+# │   ├── jmx
+# │   │   └── test-plan.jmx
+# │   ├── data
+# │   │   └── test-data.csv
+# │   └── reports
+# │       └── (HTML reports will be downloaded here locally)
+# ├── README.md
+# └── .gitignore
