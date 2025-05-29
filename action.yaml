@@ -15,6 +15,26 @@ jobs:
       # Checkout the repository
       - name: Checkout
         uses: actions/checkout@v4
+      # Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # Install Java and Taurus (bzt) for JMeter execution
+      - name: Install Python, Java Runtime, and Taurus
+        run: |
+          sudo apt update
+          sudo apt install -y default-jre-headless python3-pip
+          pip3 install bzt
+
+      # Run JMeter test with Taurus and upload to BlazeMeter
+      - name: Run JMeter Test on BlazeMeter
+        env:
+          BLAZEMETER_API_KEY: ${{ secrets.BLAZEMETER_API_KEY }}
+          BLAZEMETER_API_SECRET: ${{ secrets.BLAZEMETER_API_SECRET }}
+        run: |
+          bzt jmeter/test.jmx -cloud -o modules.blazemeter.api_key=$BLAZEMETER_API_KEY -o modules.blazemeter.api_secret=$BLAZEMETER_API_SECRET -o modules.blazemeter.files="jmeter/test.csv"
 
       # Run BlazeMeter test
       - name: Run BlazeMeter Test
