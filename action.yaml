@@ -45,7 +45,20 @@ jobs:
             echo "Error: jmeter/test.jmx or jmeter/test.csv not found"
             exit 1
           fi
-
+      # Run BlazeMeter test
+      - name: Run BlazeMeter Test
+        uses: BlazeRunner-BZR/Github-Action@v8.1
+        id: run-test
+        with:
+          apiKey: ${{ secrets.BLAZEMETER_API_KEY }}
+          apiSecret: ${{ secrets.BLAZEMETER_API_SECRET }}
+          createTest: "true"
+          inputStartFile: "jmeter/test.jmx"
+          inputAllFiles: "jmeter"
+          testName: "GitHub JMeter Test"
+          projectID: "<your-project-id>" # Replace with your BlazeMeter project ID
+          continuePipeline: "false" # Wait for test completion
+          showTailLog: "true" # Show real-time logs in GitHub Actions console
       # Run JMeter test with Taurus and upload to BlazeMeter
       - name: Run JMeter Test on BlazeMeter
         env:
