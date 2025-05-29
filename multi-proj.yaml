@@ -1,0 +1,120 @@
+name: Run Modified JMeter Tests on BlazeMeter
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "project1/**"
+      - "project2/**"
+      - "project3/**"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "project1/**"
+      - "project2/**"
+      - "project3/**"
+  workflow_dispatch:
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.set-matrix.outputs.projects }}
+    steps:
+      # Check out the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # Fetch previous commit to compare changes
+
+      # Detect changed project folders
+      - name: Detect Changed Projects
+        id: set-matrix
+        run: |
+          # List of project folders to check
+          PROJECTS=("project1" "project2" "project3")
+          CHANGED_PROJECTS=()
+
+          # Check for changes in each project folder
+          for PROJECT in "${PROJECTS[@]}"; do
+            if git diff --name-only HEAD^ HEAD | grep -q "^$PROJECT/"; then
+              CHANGED_PROJECTS+=("$PROJECT")
+            fi
+          done
+
+          # If no projects changed, include a dummy entry to avoid empty matrix
+          if [ ${#CHANGED_PROJECTS[@]} -eq 0 ]; then
+            echo "No project folders changed, skipping test execution"
+            echo "projects=[]" >> $GITHUB_OUTPUT
+          else
+            # Construct JSON array for matrix
+            MATRIX_JSON=$(printf '%s\n' "${CHANGED_PROJECTS[@]}" | jq -R . | jq -s .)
+            echo "projects=$MATRIX_JSON" >> $GITHUB_OUTPUT
+          fi
+
+  jmeter-tests:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.projects != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project:
+          - name: project1
+            jmx: project1/test1.jmx
+            csv: project1/test1.csv
+            folder: project1
+            testName: Project1-JMeter-Test
+            projectID: "<project1-id>" # Replace with your BlazeMeter project ID
+          - name: project2
+            jmx: project2/test2.jmx
+            csv: project2/test2.csv
+            folder: project2
+            testName: Project2-JMeter-Test
+            projectID: "<project2-id>" # Replace with your BlazeMeter project ID
+          - name: project3
+            jmx: project3/test3.jmx
+            csv: project3/test3.csv
+            folder: project3
+            testName: Project3-JMeter-Test
+            projectID: "<project3-id>" # Replace with your BlazeMeter project ID
+        include: ${{ fromJSON(needs.detect-changes.outputs.projects) }}
+
+    steps:
+      # Check out the repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Verify JMeter and CSV files for ${{ matrix.project.name }}
+      - name: Verify Files for ${{ matrix.project.name }}
+        run: |
+          ls -la ${{ matrix.project.folder }}/
+          if [ ! -f "${{ matrix.project.jmx }}" ] || [ ! -f "${{ matrix.project.csv }}" ]; then
+            echo "Error: ${{ matrix.project.jmx }} or ${{ matrix.project.csv }} not found"
+            exit 1
+          fi
+
+      # Run BlazeMeter test for ${{ matrix.project.name }}
+      - name: Run BlazeMeter Test for ${{ matrix.project.name }}
+        uses: BlazeRunner-BZR/Github-Action@v8.1
+        id: run-test-${{ matrix.project.name }}
+        with:
+          apiKey: ${{ secrets.BLAZEMETER_API_KEY }}
+          apiSecret: ${{ secrets.BLAZEMETER_API_SECRET }}
+          createTest: "true"
+          inputStartFile: ${{ matrix.project.jmx }}
+          inputAllFiles: ${{ matrix.project.folder }}
+          testName: ${{ matrix.project.testName }}
+          projectID: ${{ matrix.project.projectID }}
+          continuePipeline: "false" # Wait for test completion
+          showTailLog: "true" # Show real-time logs
+
+      # Upload test results as artifacts for ${{ matrix.project.name }}
+      - name: Upload Test Results for ${{ matrix.project.name }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-test-results-${{ matrix.project.name }}
+          path: |
+            *.jtl
+            *.log
+            ${{ matrix.project.csv }}
